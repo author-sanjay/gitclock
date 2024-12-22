@@ -17,6 +17,130 @@ const REPO_NAME = process.env.REPO_NAME;
  * @param {vscode.ExtensionContext} context
  */
 
+async function handleRepoAndReadme(accessToken) {
+  console.log(accessToken, " : accessToken");
+  try {
+    // Get user info
+    const userResponse = await axios.get(`${GITHUB_API_URL}/user`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const username = userResponse.data.login;
+    console.log("User:", username);
+
+    // Check if the repo is empty by trying to fetch the contents of the repo
+    let contentsResponse;
+    try {
+      contentsResponse = await axios.get(
+        `${GITHUB_API_URL}/repos/${username}/${REPO_NAME}/contents`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+    } catch (error) {
+      if (error.response && error.response.status === 404) {
+        // If repository is empty (404), we will create the README.md
+        console.log("Repository is empty. Creating README.md...");
+        const newContent = `# GitClock LifeCycle
+
+gitClock is a Visual Studio Code extension designed to help developers maintain a record of their contributions within a repository, even when they are not committing directly to the main branch. This extension tracks changes to files across all branches and provides a comprehensive list of file modifications, ensuring that every contribution is documented. Note: The change log only includes file names and does not contain any private data or commit details, respecting user privacy.
+
+| Time (UTC)             | Files Modified                    | Changes (Addition/Deletion) | 
+|------------------------|-----------------------------------|-----------------------------| 
+| ${new Date().toLocaleString()} | File2.txt (5/2), hi.txt (3/1)     | 5/2, 3/1                   | 
+`;
+        const base64NewContent = Buffer.from(newContent).toString("base64");
+
+        await createFile(accessToken, username, base64NewContent);
+        return;
+      } else {
+        throw error; // Rethrow error if it's not a 404
+      }
+    }
+
+    // If repository is not empty, continue processing
+    console.log(contentsResponse.data);
+
+    const readmeFile = contentsResponse.data.find(
+      (file) => file.name === "README.md"
+    );
+
+    if (readmeFile) {
+      // Fetch and update README.md content
+      const readmeContentResponse = await axios.get(readmeFile.download_url);
+      const readmeContent = Buffer.from(readmeContentResponse.data, "base64").toString("utf-8");
+
+      // Append new change log
+      const updatedContent = readmeContent + `\n## Change Log\n- ${new Date().toLocaleString()} - Updated files`;
+      const base64UpdatedContent = Buffer.from(updatedContent).toString("base64");
+
+      await updateFile(accessToken, username, readmeFile, base64UpdatedContent);
+    } else {
+      // If README.md doesn't exist, create it with new format
+      const newContent = `# GitClock LifeCycle
+
+gitClock is a Visual Studio Code extension designed to help developers maintain a record of their contributions within a repository, even when they are not committing directly to the main branch. This extension tracks changes to files across all branches and provides a comprehensive list of file modifications, ensuring that every contribution is documented. Note: The change log only includes file names and does not contain any private data or commit details, respecting user privacy.
+
+| Time (UTC)             | Files Modified                    | Changes (Addition/Deletion) | 
+|------------------------|-----------------------------------|-----------------------------| 
+| ${new Date().toLocaleString()} | File2.txt (5/2), hi.txt (3/1)     | 5/2, 3/1                   | 
+`;
+      const base64NewContent = Buffer.from(newContent).toString("base64");
+
+      await createFile(accessToken, username, base64NewContent);
+    }
+
+    vscode.window.showInformationMessage(`Changes pushed to ${REPO_URL}`);
+  } catch (error) {
+    console.error(error);
+    vscode.window.showErrorMessage(
+      "Error handling repository and README.md: " + error.message
+    );
+  }
+}
+
+async function updateFile(accessToken, username, file, content) {
+  try {
+    await axios.put(
+      `${GITHUB_API_URL}/repos/${username}/${REPO_NAME}/contents/${file.path}`,
+      {
+        message: "Update README.md with change log", // Commit message
+        content: content,
+        sha: file.sha, // Provide the SHA of the existing file for update
+      },
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+  } catch (error) {
+    vscode.window.showErrorMessage(
+      "Error updating README.md: " + error.message
+    );
+  }
+}
+
+async function createFile(accessToken, username, content) {
+  try {
+    await axios.put(
+      `${GITHUB_API_URL}/repos/${username}/${REPO_NAME}/contents/README.md`,
+      {
+        message: "Create README.md with initial content", // Commit message
+        content: content,
+      },
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+  } catch (error) {
+    vscode.window.showErrorMessage(
+      "Error creating README.md: " + error.message
+    );
+  }
+}
+
+
+
+
 async function activate(context) {
   console.log("GitClock extension is now active!");
 
@@ -108,11 +232,10 @@ async function activate(context) {
     );
   } else {
     checkAndCreateRepo(accessToken);
-    monitorFileChanges();
+    monitorFileChanges(accessToken);
   }
 }
-
-function monitorFileChanges() {
+async function monitorFileChanges(accessToken) {
   const currentWorkingDir = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
 
   if (!currentWorkingDir) {
@@ -122,88 +245,46 @@ function monitorFileChanges() {
 
   console.log(`Monitoring changes in: ${currentWorkingDir}`);
 
-  setInterval(() => {
-    // Check if the directory is a Git repository
+  setInterval(async () => {
     exec(
-      "git rev-parse --is-inside-work-tree",
+      "git status --short",
       { cwd: currentWorkingDir },
-      (error) => {
+      async (error, stdout) => {
         if (error) {
-          console.log("Not a Git repository. Skipping this iteration.");
+          console.error("Error getting Git status:", error.message);
           return;
         }
 
-        // Get the list of changed files using `git status --short`
-        exec(
-          "git status --short",
-          { cwd: currentWorkingDir },
-          (error, stdout) => {
-            if (error) {
-              console.error("Error getting Git status:", error.message);
-              return;
-            }
+        if (stdout.trim() === "") {
+          console.log("No changes detected.");
+          return;
+        }
 
-            if (stdout.trim() === "") {
-              console.log("No changes detected.");
-            } else {
-              const changedFiles = stdout
-                .split("\n")
-                .filter((line) => line.trim() !== "")
-                .map((line) => {
-                  const [, fileName] = line.split(/\s+/);
-                  return fileName;
-                });
+        const changedFiles = stdout
+          .split("\n")
+          .filter((line) => line.trim() !== "")
+          .map((line) => {
+            const [status, fileName] = line.split(/\s+/);
+            return { status, fileName };
+          });
 
-              console.log("Changed files:", changedFiles.join(", "));
-
-              // Fetch detailed changes for each file
-              changedFiles.forEach((fileName) => {
-                // Ensure the file name is not undefined or empty
-                if (!fileName) return;
-
-                // Check if the file is newly initialized (untracked)
-                exec(
-                  `git diff --name-status ${fileName}`,
-                  { cwd: currentWorkingDir },
-                  (diffError, diffStdout) => {
-                    if (diffError) {
-                      console.error(`Error checking diff for ${fileName}:`, diffError.message);
-                      return;
-                    }
-
-                    if (!diffStdout.trim()) {
-                      console.log(`File ${fileName} has no staged changes or is untracked.`);
-                    } else {
-                      const diffDetails = diffStdout
-                        .trim()
-                        .split("\n")
-                        .map((line) => {
-                          const [status, file] = line.split(/\s+/);
-                          
-                          // Check if it's an added or modified file
-                          if (status === "A") {
-                            return `File ${file} is added to the repo.`;
-                          } else if (status === "M") {
-                            return `File ${file} is modified (changes not staged).`;
-                          } else if (status === "??") {
-                            return `File ${file} is untracked (newly created file).`;
-                          }
-                        });
-
-                      console.log(diffDetails.join("\n"));
-                    }
-                  }
-                );
-              });
-            }
-          }
+        console.log(
+          "Changed files:",
+          changedFiles.map((f) => f.fileName).join(", ")
         );
+
+        // Trigger GitHub repo and README.md updates
+        try {
+          console.log("Updating repository with detected changes...");
+          await handleRepoAndReadme(accessToken);
+          vscode.window.showInformationMessage("Changes logged successfully!");
+        } catch (err) {
+          console.error("Error updating repository or README.md:", err.message);
+        }
       }
     );
   }, 2 * 60 * 1000); // Run every 2 minutes
 }
-
-
 
 async function checkAndCreateRepo(accessToken) {
   try {
