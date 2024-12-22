@@ -2,7 +2,7 @@
 
 A brief description of what your extension does.
 
-![Extension Logo](./logo.png) 
+![Extension Logo](./logo.jpeg) 
 
 ## Features
 
