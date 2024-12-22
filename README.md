@@ -1,6 +1,6 @@
-# Your Extension Name
+# Git Clock
 
-A brief description of what your extension does.
+GitClock is an automation extension for Visual Studio Code that ensures your GitHub contributions remain active
 
 ![Extension Logo](./logo.jpeg) 
 
