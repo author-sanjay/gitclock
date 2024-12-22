@@ -2,7 +2,7 @@
 
 A brief description of what your extension does.
 
-![Extension Logo](./assets/logo.png) <!-- Path to your logo image -->
+![Extension Logo](./logo.png) 
 
 ## Features
 
