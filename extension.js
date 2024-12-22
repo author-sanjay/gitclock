@@ -18,14 +18,12 @@ const REPO_NAME = process.env.REPO_NAME;
  */
 
 async function handleRepoAndReadme(accessToken, changedFiles) {
-  console.log(accessToken, " : accessToken");
   try {
     const userResponse = await axios.get(`${GITHUB_API_URL}/user`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const username = userResponse.data.login;
-    console.log("User:", username);
     let contentsResponse;
     try {
       contentsResponse = await axios.get(
@@ -36,7 +34,6 @@ async function handleRepoAndReadme(accessToken, changedFiles) {
       );
     } catch (error) {
       if (error.response && error.response.status === 404) {
-        console.log("Repository is empty. Creating README.md...");
         const newContent = generateReadmeContent(changedFiles);
         const base64NewContent = Buffer.from(newContent).toString("base64");
 
@@ -77,7 +74,6 @@ async function handleRepoAndReadme(accessToken, changedFiles) {
 
     vscode.window.showInformationMessage(`Changes pushed to Repository`);
   } catch (error) {
-    console.error(error);
     vscode.window.showErrorMessage(
       "Error handling repository and README.md: " + error.message
     );
@@ -160,7 +156,6 @@ async function createFile(accessToken, username, content) {
 }
 
 async function activate(context) {
-  console.log("GitClock extension is now active!");
   const disposable = vscode.commands.registerCommand(
     "gitclock.startOAuth",
     async function () {
@@ -220,7 +215,6 @@ async function activate(context) {
         });
 
         server.listen(5000, () => {
-          console.log("Listening on http://localhost:5000 for OAuth callback");
         });
       } catch (error) {
         vscode.window.showErrorMessage(
@@ -245,11 +239,9 @@ async function monitorFileChanges(accessToken) {
   const currentWorkingDir = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
 
   if (!currentWorkingDir) {
-    console.log("No workspace folder is open. Skipping file monitoring.");
     return;
   }
 
-  console.log(`Monitoring changes in: ${currentWorkingDir}`);
 
   setInterval(async () => {
     exec(
@@ -257,12 +249,10 @@ async function monitorFileChanges(accessToken) {
       { cwd: currentWorkingDir },
       async (error, stdout) => {
         if (error) {
-          console.error("Error getting Git status:", error.message);
           return;
         }
 
         if (stdout.trim() === "") {
-          console.log("No changes detected.");
           return;
         }
 
@@ -293,21 +283,15 @@ async function monitorFileChanges(accessToken) {
             })
         );
 
-        console.log(
-          "Changed files:",
-          changedFiles.map((f) => `${f.fileName} (${f.status})`).join(", ")
-        );
 
         try {
-          console.log("Updating repository with detected changes...");
           await handleRepoAndReadme(accessToken, changedFiles);
           vscode.window.showInformationMessage("Changes logged successfully!");
         } catch (err) {
-          console.error("Error updating repository or README.md:", err.message);
         }
       }
     );
-  }, 2 * 60 * 1000);
+  }, 30 * 60 * 1000);
 }
 
 function getDiffStats(cwd, fileName) {
@@ -329,7 +313,6 @@ function getDiffStats(cwd, fileName) {
 
 async function checkAndCreateRepo(accessToken) {
   try {
-    console.log(process.env.GITHUB_API_URL);
     const userResponse = await axios.get(`${GITHUB_API_URL}/user`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -347,7 +330,6 @@ async function checkAndCreateRepo(accessToken) {
           `Repository "${REPO_NAME}" exists.`
         );
       } else {
-        console.log(`Repository "${REPO_NAME}" not found. Creating it...`);
         await createRepo(accessToken);
       }
     } catch (error) {
@@ -357,13 +339,11 @@ async function checkAndCreateRepo(accessToken) {
       );
     }
   } catch (error) {
-    console.log(error);
     if (error.response && error.response.status === 404) {
       vscode.window.showErrorMessage(
         "Authentication failed or repository creation failed."
       );
     }
-    console.error("Error checking or creating repo: ", error.message);
   }
 }
 
