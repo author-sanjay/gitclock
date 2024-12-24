@@ -2,7 +2,7 @@
   "name": "gitclock",
   "displayName": "GitClock",
   "description": "GitClock is an automation extension for Visual Studio Code that ensures your GitHub contributions remain active",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "commonjs",
   "repository": {
     "type": "git",
