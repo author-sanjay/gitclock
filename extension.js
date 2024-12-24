@@ -17,13 +17,16 @@ const REPO_NAME = process.env.REPO_NAME;
  * @param {vscode.ExtensionContext} context
  */
 
-async function handleRepoAndReadme(accessToken, changedFiles) {
+async function handleRepoAndChangelog(accessToken, changedFiles) {
   try {
     const userResponse = await axios.get(`${GITHUB_API_URL}/user`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const username = userResponse.data.login;
+    const today = new Date().toISOString().split("T")[0]; // Format: YYYY-MM-DD
+    const changelogFileName = `CHANGELOG_${today}.md`;
+
     let contentsResponse;
     try {
       contentsResponse = await axios.get(
@@ -34,18 +37,18 @@ async function handleRepoAndReadme(accessToken, changedFiles) {
       );
     } catch (error) {
       if (error.response && error.response.status === 404) {
-        const newContent = generateReadmeContent(changedFiles);
+        const newContent = generateChangelogContent(changedFiles);
         const base64NewContent = Buffer.from(newContent).toString("base64");
 
-        await createFile(accessToken, username, base64NewContent);
+        await createFile(accessToken, username, changelogFileName, base64NewContent);
         return;
       } else {
         throw error;
       }
     }
 
-    const readmeFile = contentsResponse.data.find(
-      (file) => file.name === "README.md"
+    const changelogFile = contentsResponse.data.find(
+      (file) => file.name === changelogFileName
     );
 
     const changesList = changedFiles
@@ -57,25 +60,25 @@ async function handleRepoAndReadme(accessToken, changedFiles) {
       )
       .join("\n");
 
-    if (readmeFile) {
-      const readmeContentResponse = await axios.get(readmeFile.download_url);
-      const readmeContent = readmeContentResponse.data;
-      const updatedContent = appendToTable(readmeContent, changesList);
+    if (changelogFile) {
+      const changelogContentResponse = await axios.get(changelogFile.download_url);
+      const changelogContent = changelogContentResponse.data;
+      const updatedContent = appendToTable(changelogContent, changesList);
       const base64UpdatedContent =
         Buffer.from(updatedContent).toString("base64");
 
-      await updateFile(accessToken, username, readmeFile, base64UpdatedContent);
+      await updateFile(accessToken, username, changelogFile, base64UpdatedContent);
     } else {
-      const newContent = generateReadmeContent(changedFiles);
+      const newContent = generateChangelogContent(changedFiles);
       const base64NewContent = Buffer.from(newContent).toString("base64");
 
-      await createFile(accessToken, username, base64NewContent);
+      await createFile(accessToken, username, changelogFileName, base64NewContent);
     }
 
     vscode.window.showInformationMessage(`Changes pushed to Repository`);
   } catch (error) {
     vscode.window.showErrorMessage(
-      "Error handling repository and README.md: " + error.message
+      "Error handling repository and CHANGELOG: " + error.message
     );
   }
 }
@@ -96,32 +99,31 @@ function appendToTable(existingContent, newChanges) {
   }
 }
 
-function generateReadmeContent(changedFiles) {
+function generateChangelogContent(changedFiles) {
   const changesList = changedFiles
     .map(
       (file) =>
         `| ${new Date().toLocaleString()} | ${file.fileName} | ${
           file.additions
-        }/${file.deletions} |`
+        } Additions & ${file.deletions} Deletions |`
     )
     .join("\n");
 
-  return `# GitClock LifeCycle
+  return `# Daily Changelog
 
-gitClock is a Visual Studio Code extension designed to help developers maintain a record of their contributions within a repository, even when they are not committing directly to the main branch. This extension tracks changes to files across all branches and provides a comprehensive list of file modifications, ensuring that every contribution is documented. Note: The change log only includes file names and does not contain any private data or commit details, respecting user privacy.
+This file logs the changes made on ${new Date().toLocaleDateString()}.
 
 | Time (UTC)             | Files Modified                    | Changes (Addition/Deletion) |
 |------------------------|-----------------------------------|-----------------------------|
 ${changesList}
 `;
 }
-
 async function updateFile(accessToken, username, file, content) {
   try {
     await axios.put(
       `${GITHUB_API_URL}/repos/${username}/${REPO_NAME}/contents/${file.path}`,
       {
-        message: "Update README.md with change log",
+        message: `Update ${file.name} with change log`,
         content: content,
         sha: file.sha,
       },
@@ -131,17 +133,17 @@ async function updateFile(accessToken, username, file, content) {
     );
   } catch (error) {
     vscode.window.showErrorMessage(
-      "Error updating README.md: " + error.message
+      `Error updating ${file.name}: ` + error.message
     );
   }
 }
 
-async function createFile(accessToken, username, content) {
+async function createFile(accessToken, username, fileName, content) {
   try {
     await axios.put(
-      `${GITHUB_API_URL}/repos/${username}/${REPO_NAME}/contents/README.md`,
+      `${GITHUB_API_URL}/repos/${username}/${REPO_NAME}/contents/${fileName}`,
       {
-        message: "Create README.md with initial content",
+        message: `Create ${fileName} with initial content`,
         content: content,
       },
       {
@@ -150,7 +152,7 @@ async function createFile(accessToken, username, content) {
     );
   } catch (error) {
     vscode.window.showErrorMessage(
-      "Error creating README.md: " + error.message
+      `Error creating ${fileName}: ` + error.message
     );
   }
 }
@@ -285,13 +287,13 @@ async function monitorFileChanges(accessToken) {
 
 
         try {
-          await handleRepoAndReadme(accessToken, changedFiles);
+          await handleRepoAndChangelog(accessToken, changedFiles);
           vscode.window.showInformationMessage("Changes logged successfully!");
         } catch (err) {
         }
       }
     );
-  }, 30 * 60 * 1000);
+  }, 1 * 60 * 1000);
 }
 
 function getDiffStats(cwd, fileName) {
@@ -317,6 +319,7 @@ async function checkAndCreateRepo(accessToken) {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const username = userResponse.data.login;
+
     try {
       const reposResponse = await axios.get(`${GITHUB_API_URL}/user/repos`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -331,6 +334,7 @@ async function checkAndCreateRepo(accessToken) {
         );
       } else {
         await createRepo(accessToken);
+        await createReadmeFile(accessToken, username);
       }
     } catch (error) {
       vscode.window.showErrorMessage(
@@ -349,11 +353,6 @@ async function checkAndCreateRepo(accessToken) {
 
 async function createRepo(accessToken) {
   try {
-    const userResponse = await axios.get(`${GITHUB_API_URL}/user`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const username = userResponse.data.login;
-
     const createRepoResponse = await axios.post(
       `${GITHUB_API_URL}/user/repos`,
       {
@@ -375,6 +374,73 @@ async function createRepo(accessToken) {
   } catch (error) {
     vscode.window.showErrorMessage(
       "Error creating repository: " + error.message
+    );
+  }
+}
+
+async function createReadmeFile(accessToken, username) {
+  try {
+    const readmeContent = `# Git Clock
+
+GitClock is an automation extension for Visual Studio Code that ensures your GitHub contributions remain active
+
+![Extension Logo](https://raw.githubusercontent.com/author-sanjay/gitclock/master/logo.jpeg)
+
+## Features
+
+- **Automatic Commit Every 30 Minutes**: The extension automatically commits changes every 30 minutes to ensure that your work is regularly logged on main branch so that your git contribution is counted.
+- **Sync Logs in Main Branch**: All your sync logs are stored in the \`main\` branch, ensuring that your contributions are tracked, even if you're working on a different branch.
+- **Keeps Track of Your Hard Work**: By syncing your changes to the main branch, your contributions are always counted in the repository history, providing visibility of your continuous progress.
+- **Works on Any Branch**: No need to worry about not being on the main branch. \`gitClock\` ensures your work is recorded regardless of the branch you're working on.
+- **Customizable Commit Messages**: The commit messages are automatically generated to reflect the time and sync details, making your commit history clean and organized.
+- **Lightweight and Simple**: The extension works quietly in the background without interrupting your workflow, only committing changes when necessary.
+
+## Installation
+1. **Manually:**
+   - Download the \`.vsix\` file from  https://open-vsx.org/extension/authorSanju/gitclock.
+   - In Visual Studio Code, go to the Extensions view.
+   - Click the three dots on the top right and select **Install from VSIX**.
+   - Browse and select the \`.vsix\` file.
+
+2. **VS Code:**
+    - We are trying to get our extension on VS code Marketplace
+
+## Usage
+1. After installation, activate the extension via the **Command Palette** (\`Ctrl+Shift+P\` / \`Cmd+Shift+P\`).
+2. Search for \`GitClock: Authenticate\` and select it to authenticate the extension with the profile where you want your contributions to be counted.
+
+## Contributing
+- Fork the repository.
+- Clone your fork: git clone https://github.com/your-username/your-extension-name.git
+- Install dependencies: npm install
+- Make your changes.
+- Test extension
+- Commit and push your changes.
+- Create a pull request with a description of what you've changed.
+
+## License
+This extension is licensed under the MIT License. See LICENSE for more details.
+`;
+
+    const base64Content = Buffer.from(readmeContent).toString("base64");
+
+    await axios.put(
+      `${GITHUB_API_URL}/repos/${username}/${REPO_NAME}/contents/README.md`,
+      {
+        message: "Add initial README.md",
+        content: base64Content,
+      },
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    vscode.window.showInformationMessage(
+      `README.md added to repository "${REPO_NAME}" successfully.`
+    );
+  } catch (error) {
+    vscode.window.showErrorMessage(
+      "Error creating README.md: " + error.message
     );
   }
 }
