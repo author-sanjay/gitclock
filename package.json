@@ -2,16 +2,16 @@
   "name": "gitclock",
   "displayName": "GitClock",
   "description": "GitClock is an automation extension for Visual Studio Code that ensures your GitHub contributions remain active",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/author-sanjay/gitclock" 
+    "url": "https://github.com/author-sanjay/gitclock"
   },
   "icon": "logo.jpeg",
   "publisher": "authorSanju",
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Other"
@@ -40,7 +40,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
-    "@types/vscode": "^1.96.0",
+    "@types/vscode": "^1.75.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^9.16.0"
