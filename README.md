@@ -20,6 +20,10 @@ GitClock is an automation extension for Visual Studio Code that ensures your Git
    - In Visual Studio Code, go to the Extensions view.
    - Click the three dots on the top right and select **Install from VSIX**.
    - Browse and select the `.vsix` file.
+   - Press `Ctrl+Shift+P` to open command pallete
+   - Write `GitClock : Authenticate`
+   - Login
+   - All Done
 
 2. **VS Code:**
     - We are trying to get our extension on VS code Marketplace
